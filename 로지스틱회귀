@@ -1,0 +1,171 @@
+# Standard libraries
+import warnings
+warnings.filterwarnings("ignore")
+
+# Data manipulation and visualization
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
+
+# Machine learning and preprocessing
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
+from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import ConfusionMatrixDisplay
+from sklearn.ensemble import RandomForestClassifier
+#from lightgbm import LGBMClassifier
+from xgboost import XGBClassifier
+from mlxtend.classifier import StackingClassifier, StackingCVClassifier
+
+# Utility libraries
+from termcolor import colored
+from collections import Counter
+import scipy.stats as st
+
+# Show all DataFrame columns
+pd.set_option('display.max_columns', 30)
+
+# Display all model parameters
+from sklearn import set_config
+set_config(print_changed_only=False)
+
+# Try importing PrettyTable (auto-install if not found)
+try:
+    from prettytable import PrettyTable
+except ImportError:
+    import subprocess
+    subprocess.check_call(["pip", "install", "prettytable"])
+    from prettytable import PrettyTable
+
+#print(colored("\nLIBRARIES WERE SUCCESSFULLY IMPORTED...", color="green", attrs=["dark", "bold"]))
+
+smoking = pd.read_excel("C:/smoking.xlsx")
+df = smoking.drop("ID", axis = 1)
+#print(df.head(n = 10))
+
+
+#각 column name change
+df.rename(columns = {"height(cm)" : "height_cm", "weight(kg)" : "weight_kg",
+                     "waist(cm)" : "waist_cm", "eyesight(left)" : "eyesight_left",
+                     "eyesight(right)" : "eyesight_right", "hearing(left)" : "hearing_left",
+                     "hearing(right)" : "hearing_right", "fasting blood sugar" : "fasting_blood_sugar",
+                     "Cholesterol" : "cholesterol", "HDL" : "hdl", "LDL" : "ldl",
+                     "Urine protein" : "urine_protein", "serum creatinine" : "serum_creatinine",
+                     "AST" : "ast", "ALT" : "alt", "Gtp" : "gtp", "dental caries" : "dental_caries"},
+          inplace = True)
+
+#print(colored("\nTHE COLUMNS OF DATASET WERE SUCCESFULLY RENAMED...", color = "green", attrs = ["dark", "bold"]))
+
+#전처리 과정에서 null값 check
+#print("\nThere are totally {} null values in the dataset".format(df.isnull().sum().sum()))
+
+
+
+def outlier_detection(df, n, columns):
+    rows = []
+    will_drop_train = []
+    for col in columns:
+        Q1 = np.nanpercentile(df[col], 25)
+        Q3 = np.nanpercentile(df[col], 75)
+        IQR = Q3 - Q1
+        outlier_point = 1.5 * IQR
+        rows.extend(df[(df[col] < Q1 - outlier_point)|(df[col] > Q3 + outlier_point)].index)
+    for r, c in Counter(rows).items():
+        if c >= n: will_drop_train.append(r)
+    return will_drop_train
+
+will_drop_train = outlier_detection(df, 5, df.select_dtypes(["float", "int"]).columns)
+will_drop_train[0:5]
+
+
+df.drop(will_drop_train, inplace = True, axis = 0)
+
+
+#text data를 실수로 변경경
+lbe = LabelEncoder()
+lbe.fit_transform(df["gender"])
+df["gender"] = lbe.fit_transform(df["gender"])
+
+lbe = LabelEncoder()
+lbe.fit_transform(df["tartar"])
+df["tartar"] = lbe.fit_transform(df["tartar"])
+
+lbe = LabelEncoder()
+lbe.fit_transform(df["oral"])
+df["oral"] = lbe.fit_transform(df["oral"])
+
+
+# select dependent variable (label)(정답)
+y = df["smoking"]
+
+# select independent variable (estimator)(smoking 제외 나머지. use x data to estimate y value)
+x = df.drop("smoking", axis = 1)
+
+#test size, random state는 linear와 맞추어야 정확한 비교 가능
+x_train, x_test, y_train, y_test = train_test_split(x, y,
+                                                    test_size = 0.20,
+                                                    shuffle = True,
+                                                    random_state = 1)
+
+#standardization process
+scaler = MinMaxScaler()
+scaler.fit(x_train)
+x_train = scaler.transform(x_train)
+x_test = scaler.transform(x_test)
+
+
+
+#building classification models
+
+#training process with random forest model
+#tree 개수 1000개. 많을 수록 더 정확하지만 소요시간 길어짐.
+rf_model = RandomForestClassifier(n_estimators = 1000)
+rf_model.fit(x_train, y_train)
+
+#accuracy score on test set
+y_pred = rf_model.predict(x_test)
+accuracy_score(y_test, y_pred)
+
+
+#importance level of variables(
+importance = pd.DataFrame({"Importance": rf_model.feature_importances_ * 100},
+                         index = pd.DataFrame(x_train).columns)
+importance.sort_values(by = "Importance", axis = 0,
+                       ascending = True).plot(kind = "bar", color = "red")
+plt.xlabel("Importance levels of the variables")
+plt.ylabel("Variables");
+
+
+print(classification_report(y_test, y_pred))
+
+
+#ROC curve
+rf_roc_auc = roc_auc_score(y_test, rf_model.predict(x_test))
+fpr, tpr, thresholds = roc_curve(y_test, rf_model.predict_proba(x_test)[:,1])
+
+plt.figure()
+plt.plot(fpr, tpr, label = 'AUC (area = %0.2f)' % rf_roc_auc)
+plt.plot([0, 1], [0, 1],'g--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC')
+plt.show()
+
+#visualization confusion matrix
+conf_mat = confusion_matrix(y_test, y_pred)
+print(conf_mat)
+
+sns.heatmap(conf_mat, square = True, annot = True, robust = True)
+plt.show()
+
+
+xgb_model = XGBClassifier(n_estimators = 1000)
+xgb_model.fit(x_train, y_train)
