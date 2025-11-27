@@ -1,0 +1,88 @@
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.metrics import accuracy_score, classification_report, roc_curve, auc, confusion_matrix
+
+df = pd.read_excel('C:/smoking.xlsx')
+#df = df.drop(['ID', 'age', 'oral', 'hearing(left)', 'hearing(right)', 'eyesight(left)', 'eyesight(right)', 'waist(cm)', 'height(cm)','fasting blood sugar','Cholesterol','triglyceride','Urine protein'], axis=1)
+df = df.drop(['ID'], axis=1)
+
+
+x = df.drop(['smoking'], axis=1)
+y = df['smoking']
+
+le = LabelEncoder()
+#x['gender'] = le.fit_transform(x['gender'])
+
+x['tartar'] = le.fit_transform(x['tartar'])
+x['gender'] = le.fit_transform(x['gender'])
+x['oral'] = le.fit_transform(x['oral'])
+
+
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=1)
+
+
+scaler = StandardScaler()
+x_train = scaler.fit_transform(x_train)
+x_test = scaler.transform(x_test)
+
+classifier = LogisticRegression()
+classifier.fit(x_train, y_train)
+
+y_pred = classifier.predict(x_test)
+
+print("\nModel Performance Metrics:")
+print("Accuracy Score:", accuracy_score(y_test, y_pred))
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred))
+
+
+from sklearn.metrics import confusion_matrix
+
+cm = confusion_matrix(y_test, y_pred)
+total = cm.sum()
+
+cm_percentages = (cm / total) * 100
+
+cm_percentages = np.round(cm_percentages, 2)
+
+plt.figure(figsize=(15, 5))
+
+# 1. Confusion Matrix Heatmap
+plt.subplot(131)
+sns.heatmap(cm_percentages, annot=True, fmt='.2f', cmap='Blues',
+            xticklabels=['Non-Smoker', 'Smoker'],
+            yticklabels=['Non-Smoker', 'Smoker'])
+plt.title('Confusion Matrix (%)')
+
+# 2. ROC Curve
+plt.subplot(132)
+fpr, tpr, _ = roc_curve(y_test, classifier.predict_proba(x_test)[:,1])
+roc_auc = auc(fpr, tpr)
+plt.plot(fpr, tpr, color='darkorange', lw=2, 
+         label=f'ROC curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend(loc="lower right")
+
+# 3. Feature Importance
+plt.subplot(133)
+feature_importance = pd.DataFrame({
+    'feature': df.drop('smoking', axis=1).columns,
+    'importance': abs(classifier.coef_[0])
+})
+feature_importance = feature_importance.sort_values('importance', ascending=True)
+plt.barh(feature_importance['feature'], feature_importance['importance'])
+plt.title('Feature Importance')
+plt.xlabel('Absolute Coefficient Value')
+
+plt.tight_layout()
+plt.show()
